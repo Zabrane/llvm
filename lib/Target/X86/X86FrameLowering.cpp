@@ -1431,11 +1431,13 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   unsigned TlsReg, TlsOffset;
   DebugLoc DL;
 
+  unsigned LibrcdStyle = MF.getTarget().Options.EnableLibrcdStackSegmentation;
+
   unsigned ScratchReg = GetScratchRegister(Is64Bit, MF, true);
   assert(!MF.getRegInfo().isLiveIn(ScratchReg) &&
          "Scratch register is live-in");
 
-  if (MF.getFunction()->isVarArg())
+  if (!LibrcdStyle && MF.getFunction()->isVarArg())
     report_fatal_error("Segmented stacks do not support vararg functions.");
   if (!STI.isTargetLinux() && !STI.isTargetDarwin() &&
       !STI.isTargetWin32() && !STI.isTargetFreeBSD())
@@ -1472,13 +1474,13 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
 
   // When the frame size is less than 256 we just compare the stack
   // boundary directly to the value of the stack pointer, per gcc.
-  bool CompareStackPointer = StackSize < kSplitStackAvailable;
+  bool CompareStackPointer = StackSize < (LibrcdStyle? 0: kSplitStackAvailable);
 
   // Read the limit off the current stacklet off the stack_guard location.
   if (Is64Bit) {
     if (STI.isTargetLinux()) {
       TlsReg = X86::FS;
-      TlsOffset = 0x70;
+      TlsOffset = LibrcdStyle? 0x8: 0x70;
     } else if (STI.isTargetDarwin()) {
       TlsReg = X86::GS;
       TlsOffset = 0x60 + 90*8; // See pthread_machdep.h. Steal TLS slot 90.

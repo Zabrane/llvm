@@ -207,6 +207,11 @@ SegmentedStacks("segmented-stacks",
                 cl::init(false));
 
 cl::opt<bool>
+LibrcdStackSegmentation("librcd-stack-segmentation",
+                cl::desc("Use librcd stack segmentation when using segmented stacks."),
+                cl::init(false));
+
+cl::opt<bool>
 UseInitArray("use-init-array",
              cl::desc("Use .init_array instead of .ctors."),
              cl::init(false));
