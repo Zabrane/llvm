@@ -14255,8 +14255,10 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
 
   assert(getTargetMachine().Options.EnableSegmentedStacks);
 
+  unsigned LibrcdStyle = getTargetMachine().Options.EnableLibrcdStackSegmentation;
+
   unsigned TlsReg = Is64Bit ? X86::FS : X86::GS;
-  unsigned TlsOffset = Is64Bit ? 0x70 : 0x30;
+  unsigned TlsOffset = Is64Bit ? (LibrcdStyle ? 0x8 : 0x70) : 0x30;
 
   // BB:
   //  ... [Till the alloca]
