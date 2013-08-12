@@ -1470,7 +1470,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   // Eventually StackSize will be calculated by a link-time pass; which will
   // also decide whether checking code needs to be injected into this particular
   // prologue.
-  StackSize = MFI->getStackSize();
+  StackSize = MFI->getStackSize() + MFI->getMaxCallFrameSize();
 
   // When the frame size is less than 256 we just compare the stack
   // boundary directly to the value of the stack pointer, per gcc.
