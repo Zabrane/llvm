@@ -1442,6 +1442,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MachineBasicBlock &prologueMBB = MF.front();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const X86InstrInfo &TII = *TM.getInstrInfo();
+  const X86RegisterInfo *RegInfo = TM.getRegisterInfo();
   uint64_t StackSize;
   bool Is64Bit = STI.is64Bit();
   unsigned TlsReg, TlsOffset;
@@ -1450,7 +1451,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   unsigned LibrcdStyle = MF.getTarget().Options.EnableLibrcdStackSegmentation;
 
   unsigned ScratchReg = GetScratchRegister(Is64Bit, MF, true);
-  assert(!MF.getRegInfo().isLiveIn(ScratchReg) &&
+  assert(!RegInfo->isLiveIn(ScratchReg) &&
          "Scratch register is live-in");
 
   if (!LibrcdStyle && MF.getFunction()->isVarArg())
@@ -1483,10 +1484,13 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MF.push_front(allocMBB);
   MF.push_front(checkMBB);
 
-  // Eventually StackSize will be calculated by a link-time pass; which will
-  // also decide whether checking code needs to be injected into this particular
-  // prologue.
-  StackSize = MFI->getStackSize() + MFI->getMaxCallFrameSize();
+  // The stack size we need to allocate is the stack allocated by emitPrologue
+  // plus the worst case frame alignment, plus the max additional stack used
+  // for the argument area when calling other frames.
+
+  StackSize = MFI->getStackSize()
+    + (RegInfo->needsStackRealignment(MF)? getMaxAlign(MFI): 0)
+    + MFI->getMaxCallFrameSize();
 
   // When the frame size is less than 256 we just compare the stack
   // boundary directly to the value of the stack pointer, per gcc.
