@@ -1454,6 +1454,9 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   assert(!RegInfo->isLiveIn(ScratchReg) &&
          "Scratch register is live-in");
 
+  if (!MF.getFunction()->getAttributes().hasAttribute(
+                        AttributeSet::FunctionIndex,  Attribute::NoRedZone))
+    report_fatal_error("Segmented stacks do not support red zone functions.");
   if (!LibrcdStyle && MF.getFunction()->isVarArg())
     report_fatal_error("Segmented stacks do not support vararg functions.");
   if (!STI.isTargetLinux() && !STI.isTargetDarwin() &&
