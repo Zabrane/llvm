@@ -639,7 +639,28 @@ static bool usesTheStack(MachineFunction &MF) {
   return false;
 }
 
-/// emitPrologue - Push callee-saved registers onto the stack, which
+/// Returns desired stack alignment.
+uint64_t X86FrameLowering::getMaxAlign(const MachineFrameInfo *MFI) const {
+  uint64_t MaxAlign = MFI->getMaxAlignment();
+  unsigned StackAlign = getStackAlignment();
+  const X86RegisterInfo *RegInfo = TM.getRegisterInfo();
+  unsigned SlotSize = RegInfo->getSlotSize();
+
+  // If we're forcing a stack realignment we can't rely on just the frame
+  // info, we need to know the ABI stack alignment as well in case we
+  // have a call out.  Otherwise just make sure we have some alignment - we'll
+  // go with the minimum SlotSize.
+  if (ForceStackAlign) {
+    if (MFI->hasCalls())
+      MaxAlign = (StackAlign > MaxAlign) ? StackAlign : MaxAlign;
+    else if (MaxAlign < SlotSize)
+      MaxAlign = SlotSize;
+  }
+
+  return MaxAlign;
+}
+
+/// emitAccountedPrologue - Push callee-saved registers onto the stack, which
 /// automatically adjust the stack pointer. Adjust the stack pointer to allocate
 /// space for local variables. Also emit labels used by the exception handler to
 /// generate the exception handling frames.
@@ -654,30 +675,18 @@ void X86FrameLowering::emitPrologue(MachineFunction &MF) const {
   X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   bool needsFrameMoves = MMI.hasDebugInfo() ||
     Fn->needsUnwindTableEntry();
-  uint64_t MaxAlign  = MFI->getMaxAlignment(); // Desired stack alignment.
+  uint64_t MaxAlign = getMaxAlign(MFI);
   uint64_t StackSize = MFI->getStackSize();    // Number of bytes to allocate.
   bool HasFP = hasFP(MF);
   bool Is64Bit = STI.is64Bit();
   bool IsLP64 = STI.isTarget64BitLP64();
   bool IsWin64 = STI.isTargetWin64();
   bool UseLEA = STI.useLeaForSP();
-  unsigned StackAlign = getStackAlignment();
   unsigned SlotSize = RegInfo->getSlotSize();
   unsigned FramePtr = RegInfo->getFrameRegister(MF);
   unsigned StackPtr = RegInfo->getStackRegister();
   unsigned BasePtr = RegInfo->getBaseRegister();
   DebugLoc DL;
-
-  // If we're forcing a stack realignment we can't rely on just the frame
-  // info, we need to know the ABI stack alignment as well in case we
-  // have a call out.  Otherwise just make sure we have some alignment - we'll
-  // go with the minimum SlotSize.
-  if (ForceStackAlign) {
-    if (MFI->hasCalls())
-      MaxAlign = (StackAlign > MaxAlign) ? StackAlign : MaxAlign;
-    else if (MaxAlign < SlotSize)
-      MaxAlign = SlotSize;
-  }
 
   // Add RETADDR move area to callee saved frame size.
   int TailCallReturnAddrDelta = X86FI->getTCReturnAddrDelta();
@@ -997,7 +1006,6 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   bool Is64Bit = STI.is64Bit();
   bool IsLP64 = STI.isTarget64BitLP64();
   bool UseLEA = STI.useLeaForSP();
-  unsigned StackAlign = getStackAlignment();
   unsigned SlotSize = RegInfo->getSlotSize();
   unsigned FramePtr = RegInfo->getFrameRegister(MF);
   unsigned StackPtr = RegInfo->getStackRegister();
@@ -1020,20 +1028,9 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
 
   // Get the number of bytes to allocate from the FrameInfo.
   uint64_t StackSize = MFI->getStackSize();
-  uint64_t MaxAlign  = MFI->getMaxAlignment();
+  uint64_t MaxAlign = getMaxAlign(MFI);
   unsigned CSSize = X86FI->getCalleeSavedFrameSize();
   uint64_t NumBytes = 0;
-
-  // If we're forcing a stack realignment we can't rely on just the frame
-  // info, we need to know the ABI stack alignment as well in case we
-  // have a call out.  Otherwise just make sure we have some alignment - we'll
-  // go with the minimum.
-  if (ForceStackAlign) {
-    if (MFI->hasCalls())
-      MaxAlign = (StackAlign > MaxAlign) ? StackAlign : MaxAlign;
-    else
-      MaxAlign = MaxAlign ? MaxAlign : 4;
-  }
 
   if (hasFP(MF)) {
     // Calculate required stack adjustment.

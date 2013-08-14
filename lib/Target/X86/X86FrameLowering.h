@@ -16,6 +16,7 @@
 
 #include "X86Subtarget.h"
 #include "llvm/MC/MCDwarf.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {
@@ -96,6 +97,8 @@ public:
   void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator MI) const;
+
+  uint64_t getMaxAlign(const MachineFrameInfo *MFI) const;
 };
 
 } // End llvm namespace
