@@ -1414,6 +1414,25 @@ GetScratchRegister(bool Is64Bit, const MachineFunction &MF, bool Primary) {
   return Primary ? X86::ECX : X86::EAX;
 }
 
+/// Returns true if the type value could occupy vector,
+/// floating point or otherwise extended registers.
+static bool
+IsFxType(Type* t) {
+  switch (t->getTypeID()) {
+  case Type::HalfTyID:
+  case Type::FloatTyID:
+  case Type::DoubleTyID:
+  case Type::X86_FP80TyID:
+  case Type::FP128TyID:
+  case Type::PPC_FP128TyID:
+  case Type::X86_MMXTyID:
+  case Type::VectorTyID:
+      return true;
+  default:
+      return false;
+  }
+}
+
 // The stack limit in the TCB is set to this many bytes above the actual stack
 // limit.
 static const uint64_t kSplitStackAvailable = 256;
@@ -1563,6 +1582,21 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   // It jumps to normal execution of the function body.
   BuildMI(checkMBB, DL, TII.get(X86::JA_4)).addMBB(&prologueMBB);
 
+  uint64_t RequestStackSize = StackSize;
+  bool HasFxPassing = false;
+  if (LibrcdStyle) {
+    // In librcd have a more expensive type of __morestack that
+    // saves the floating point and vector state with FXRSTOR / FXSAVE
+    // which we should use if the function either takes any arguments
+    // or returns any values in xmm/mmx/st.
+    const Function *F = MF.getFunction();
+    HasFxPassing = F->isVarArg() || IsFxType(F->getReturnType());
+    for (Function::const_arg_iterator I = F->arg_begin(), E = F->arg_end(); !HasFxPassing && I != E; I++)
+      HasFxPassing = IsFxType(I->getType());
+    if (HasFxPassing)
+      RequestStackSize = (0x8000000000000000 | RequestStackSize);
+  }
+
   // On 32 bit we first push the arguments size and then the frame size. On 64
   // bit, we pass the stack frame size in r10 and the argument size in r11.
   if (Is64Bit) {
@@ -1573,7 +1607,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
       BuildMI(allocMBB, DL, TII.get(X86::MOV64rr), X86::RAX).addReg(X86::R10);
 
     BuildMI(allocMBB, DL, TII.get(X86::MOV64ri), X86::R10)
-      .addImm(StackSize);
+      .addImm(RequestStackSize);
     BuildMI(allocMBB, DL, TII.get(X86::MOV64ri), X86::R11)
       .addImm(X86FI->getArgumentStackSize());
     MF.getRegInfo().setPhysRegUsed(X86::R10);
@@ -1582,16 +1616,16 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
     BuildMI(allocMBB, DL, TII.get(X86::PUSHi32))
       .addImm(X86FI->getArgumentStackSize());
     BuildMI(allocMBB, DL, TII.get(X86::PUSHi32))
-      .addImm(StackSize);
+      .addImm(RequestStackSize);
   }
 
   // __morestack is in libgcc
   if (Is64Bit)
     BuildMI(allocMBB, DL, TII.get(X86::CALL64pcrel32))
-      .addExternalSymbol("__morestack");
+      .addExternalSymbol(HasFxPassing? "__morestack_fx": "__morestack");
   else
     BuildMI(allocMBB, DL, TII.get(X86::CALLpcrel32))
-      .addExternalSymbol("__morestack");
+      .addExternalSymbol(HasFxPassing? "__morestack_fx": "__morestack");
 
   if (IsNested)
     BuildMI(allocMBB, DL, TII.get(X86::MORESTACK_RET_RESTORE_R10));
