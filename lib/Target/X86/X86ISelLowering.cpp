@@ -14257,14 +14257,6 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
 
   unsigned LibrcdStyle = getTargetMachine().Options.EnableLibrcdStackSegmentation;
 
-  // FIXME: Bumping stack pointer is disabled. ("no bump")
-  // It would be unsafe since comparing with the TLS offset (stack limit) also need
-  // to take max call frame size (in MachineFrameInfo)
-  // into account, and this value is not known until a later pass.
-  // For now we always do "malloc" allocation which is a branch that is slower but
-  // should still have acceptable performance.
-
-#if 0 /* no bump */
   unsigned TlsReg = Is64Bit ? X86::FS : X86::GS;
   unsigned TlsOffset = Is64Bit ? (LibrcdStyle ? 0x8 : 0x70) : 0x30;
 
@@ -14283,12 +14275,9 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
   //  ...
   //  [rest of original BB]
   //
-#endif /* no bump */
 
   MachineBasicBlock *mallocMBB = MF->CreateMachineBasicBlock(LLVM_BB);
-#if 0 /* no bump */
   MachineBasicBlock *bumpMBB = MF->CreateMachineBasicBlock(LLVM_BB);
-#endif /* no bump */
   MachineBasicBlock *continueMBB = MF->CreateMachineBasicBlock(LLVM_BB);
 
   MachineRegisterInfo &MRI = MF->getRegInfo();
@@ -14305,9 +14294,7 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
   MachineFunction::iterator MBBIter = BB;
   ++MBBIter;
 
-#if 0 /* no bump */
   MF->insert(MBBIter, bumpMBB);
-#endif /* no bump */
   MF->insert(MBBIter, mallocMBB);
   MF->insert(MBBIter, continueMBB);
 
@@ -14315,16 +14302,32 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
                       (MachineBasicBlock::iterator(MI)), BB->end());
   continueMBB->transferSuccessorsAndUpdatePHIs(BB);
 
-#if 0 /* no bump */
   // Add code to the main basic block to check if the stack limit has been hit,
   // and if so, jump to mallocMBB otherwise to bumpMBB.
   BuildMI(BB, DL, TII->get(TargetOpcode::COPY), tmpSPVReg).addReg(physSPReg);
   BuildMI(BB, DL, TII->get(Is64Bit ? X86::SUB64rr:X86::SUB32rr), SPLimitVReg)
     .addReg(tmpSPVReg).addReg(sizeVReg);
-  BuildMI(BB, DL, TII->get(Is64Bit ? X86::CMP64mr:X86::CMP32mr))
-    .addReg(0).addImm(1).addReg(0).addImm(TlsOffset).addReg(TlsReg)
-    .addReg(SPLimitVReg);
-  BuildMI(BB, DL, TII->get(X86::JG_4)).addMBB(mallocMBB);
+
+  if (LibrcdStyle) {
+    // FIXME: Bumping stack pointer is disabled if we're not in a system ctx
+    // where the stack limit is zero.
+    // It would be unsafe since comparing with the TLS offset (stack limit) also need
+    // to take max call frame size (in MachineFrameInfo) into account, and this value
+    // is not known until a later pass.
+    // For now we always do "malloc" allocation when we are on a stacklet which is a
+    // branch that is slower but should still have acceptable performance.
+    BuildMI(BB, DL, TII->get(Is64Bit ? X86::XOR64rr:X86::XOR32rr), tmpSPVReg)
+      .addReg(tmpSPVReg);
+    BuildMI(BB, DL, TII->get(Is64Bit ? X86::CMP64mr:X86::CMP32mr))
+      .addReg(0).addImm(1).addReg(0).addImm(TlsOffset).addReg(TlsReg)
+      .addReg(tmpSPVReg);
+    BuildMI(BB, DL, TII->get(X86::JNE_4)).addMBB(mallocMBB);
+  } else {
+    BuildMI(BB, DL, TII->get(Is64Bit ? X86::CMP64mr:X86::CMP32mr))
+      .addReg(0).addImm(1).addReg(0).addImm(TlsOffset).addReg(TlsReg)
+      .addReg(SPLimitVReg);
+    BuildMI(BB, DL, TII->get(X86::JG_4)).addMBB(mallocMBB);
+  }
 
   // bumpMBB simply decreases the stack pointer, since we know the current
   // stacklet has enough space.
@@ -14333,9 +14336,6 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
   BuildMI(bumpMBB, DL, TII->get(TargetOpcode::COPY), bumpSPPtrVReg)
     .addReg(SPLimitVReg);
   BuildMI(bumpMBB, DL, TII->get(X86::JMP_4)).addMBB(continueMBB);
-#else /* no bump */
-  BuildMI(BB, DL, TII->get(X86::JMP_4)).addMBB(mallocMBB);
-#endif /* no bump */
 
   // Calls into a routine in libgcc to allocate more space from the heap.
   const uint32_t *RegMask =
@@ -14366,7 +14366,6 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
     .addReg(Is64Bit ? X86::RAX : X86::EAX);
   BuildMI(mallocMBB, DL, TII->get(X86::JMP_4)).addMBB(continueMBB);
 
-#if 0 /* no bump */
   // Set up the CFG correctly.
   BB->addSuccessor(bumpMBB);
   BB->addSuccessor(mallocMBB);
@@ -14378,16 +14377,6 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
           MI->getOperand(0).getReg())
     .addReg(mallocPtrVReg).addMBB(mallocMBB)
     .addReg(bumpSPPtrVReg).addMBB(bumpMBB);
-#else /* no bump */
-  // Set up the CFG correctly.
-  BB->addSuccessor(mallocMBB);
-  mallocMBB->addSuccessor(continueMBB);
-
-  // Take care of the PHI nodes.
-  BuildMI(*continueMBB, continueMBB->begin(), DL, TII->get(X86::PHI),
-          MI->getOperand(0).getReg())
-    .addReg(mallocPtrVReg).addMBB(mallocMBB);
-#endif /* no bump */
 
   // Delete the original pseudo instruction.
   MI->eraseFromParent();
