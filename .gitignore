@@ -35,11 +35,14 @@ compile_commands.json
 #==============================================================================#
 # External projects that are tracked independently.
 projects/*
+# compiler-rt is tracked as a submodule in this repo.
+!projects/compiler-rt
 !projects/sample
 !projects/CMakeLists.txt
 !projects/Makefile
-# Clang, which is tracked independently.
-tools/clang
+# clang is tracked as a submodule in this repo.
+#### Clang, which is tracked independently.
+###tools/clang
 # LLDB, which is tracked independently.
 tools/lldb
 # lld, which is tracked independently.
