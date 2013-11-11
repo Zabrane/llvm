@@ -1443,6 +1443,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const X86InstrInfo &TII = *TM.getInstrInfo();
   const X86RegisterInfo *RegInfo = TM.getRegisterInfo();
+  unsigned StackAlign = getStackAlignment();
   uint64_t StackSize;
   bool Is64Bit = STI.is64Bit();
   unsigned TlsReg, TlsOffset;
@@ -1487,13 +1488,17 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MF.push_front(allocMBB);
   MF.push_front(checkMBB);
 
+  /// If the function has a call frame size it must be stack aligned as the
+  /// call lowering will pad it so the stack is aligned when the call is made.
+  unsigned MaxCallFrameSize = (MFI->getMaxCallFrameSize() + StackAlign - 1) / StackAlign * StackAlign;
+
   // The stack size we need to allocate is the stack allocated by emitPrologue
   // plus the worst case frame alignment, plus the max additional stack used
   // for the argument area when calling other frames.
 
   StackSize = MFI->getStackSize()
     + (RegInfo->needsStackRealignment(MF)? getMaxAlign(MFI): 0)
-    + MFI->getMaxCallFrameSize();
+    + MaxCallFrameSize;
 
   // When the frame size is less than 256 we just compare the stack
   // boundary directly to the value of the stack pointer, per gcc.
