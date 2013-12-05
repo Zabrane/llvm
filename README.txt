@@ -16,3 +16,10 @@ documentation setup.
 If you're writing a package for LLVM, see docs/Packaging.rst for our
 suggestions.
 
+#Build on arch:
+mkdir -p llvm-build
+cd llvm-build
+ln -s /bin/python2 python
+begin; set -lx PATH "$PWD $PATH"; cmake -D0CMAKE_BUILD_TYPE:STRING=RelWithDebInfo ../llvm; end
+make -jXX
+sudo make install
