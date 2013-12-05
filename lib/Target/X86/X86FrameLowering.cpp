@@ -1452,7 +1452,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   unsigned LibrcdStyle = MF.getTarget().Options.EnableLibrcdStackSegmentation;
 
   unsigned ScratchReg = GetScratchRegister(Is64Bit, MF, true);
-  assert(!RegInfo->isLiveIn(ScratchReg) &&
+  assert(!MF.getRegInfo().isLiveIn(ScratchReg) &&
          "Scratch register is live-in");
 
   if (!MF.getFunction()->getAttributes().hasAttribute(
