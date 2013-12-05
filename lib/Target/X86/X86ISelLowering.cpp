@@ -14287,6 +14287,7 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
   unsigned mallocPtrVReg = MRI.createVirtualRegister(AddrRegClass),
     bumpSPPtrVReg = MRI.createVirtualRegister(AddrRegClass),
     tmpSPVReg = MRI.createVirtualRegister(AddrRegClass),
+    tmpZeroReg = MRI.createVirtualRegister(AddrRegClass),
     SPLimitVReg = MRI.createVirtualRegister(AddrRegClass),
     sizeVReg = MI->getOperand(1).getReg(),
     physSPReg = Is64Bit ? X86::RSP : X86::ESP;
@@ -14316,11 +14317,12 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
     // is not known until a later pass.
     // For now we always do "malloc" allocation when we are on a stacklet which is a
     // branch that is slower but should still have acceptable performance.
-    BuildMI(BB, DL, TII->get(Is64Bit ? X86::XOR64rr:X86::XOR32rr), tmpSPVReg)
-      .addReg(tmpSPVReg);
+    BuildMI(BB, DL, TII->get(Is64Bit ? X86::XOR64rr:X86::XOR32rr),
+tmpZeroReg)
+      .addReg(tmpSPVReg).addReg(tmpSPVReg);
     BuildMI(BB, DL, TII->get(Is64Bit ? X86::CMP64mr:X86::CMP32mr))
       .addReg(0).addImm(1).addReg(0).addImm(TlsOffset).addReg(TlsReg)
-      .addReg(tmpSPVReg);
+      .addReg(tmpZeroReg);
     BuildMI(BB, DL, TII->get(X86::JNE_4)).addMBB(mallocMBB);
   } else {
     BuildMI(BB, DL, TII->get(Is64Bit ? X86::CMP64mr:X86::CMP32mr))
