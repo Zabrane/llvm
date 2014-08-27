@@ -1443,8 +1443,8 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const X86InstrInfo &TII = *TM.getInstrInfo();
   const X86RegisterInfo *RegInfo = TM.getRegisterInfo();
+  uint64_t MaxAlign = (RegInfo->needsStackRealignment(MF)? getMaxAlign(MFI): 1);
   unsigned StackAlign = getStackAlignment();
-  uint64_t StackSize;
   bool Is64Bit = STI.is64Bit();
   unsigned TlsReg, TlsOffset;
   DebugLoc DL;
@@ -1492,13 +1492,22 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   /// call lowering will pad it so the stack is aligned when the call is made.
   unsigned MaxCallFrameSize = (MFI->getMaxCallFrameSize() + StackAlign - 1) / StackAlign * StackAlign;
 
-  // The stack size we need to allocate is the stack allocated by emitPrologue
-  // plus the worst case frame alignment, plus the max additional stack used
-  // for the argument area when calling other frames.
+  // The stack size we need to allocate is the saved frame size plus the worst
+  // case frame alignment plus the normal stack allocation plus the max
+  // additional stack used for the argument area when calling other frames.
 
-  StackSize = MFI->getStackSize()
-    + (RegInfo->needsStackRealignment(MF)? getMaxAlign(MFI): 0)
-    + MaxCallFrameSize;
+  uint64_t SavedFrameSize = X86FI->getCalleeSavedFrameSize(); // size of regs pushed for save (not ret, bp)
+  uint64_t WorstCaseAlign = (MaxAlign > 1? MaxAlign: 0); // and etc. sp align
+  uint64_t AllocStackSize = MFI->getStackSize(); // sub sp (+ 0x18 if call out, TODO: research why)
+
+  uint64_t StackSize = SavedFrameSize + WorstCaseAlign + AllocStackSize + MaxCallFrameSize;
+
+  /*
+    fprintf(stderr, "SavedFrameSize: [%s] [%x]\n", MF.getName().data(), SavedFrameSize);
+    fprintf(stderr, "WorstCaseAlign: [%s] [%x]\n", MF.getName().data(), WorstCaseAlign);
+    fprintf(stderr, "AllocStackSize: [%s] [%x]\n", MF.getName().data(), AllocStackSize);
+    fprintf(stderr, "MaxCallFrameSize: [%s] [%x]\n", MF.getName().data(), MaxCallFrameSize);
+  */
 
   // When the frame size is less than 256 we just compare the stack
   // boundary directly to the value of the stack pointer, per gcc.
