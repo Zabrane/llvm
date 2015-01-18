@@ -278,7 +278,7 @@ static int compileModule(char **argv, LLVMContext &Context) {
   Options.TrapFuncName = TrapFuncName;
   Options.PositionIndependentExecutable = EnablePIE;
   Options.EnableSegmentedStacks = SegmentedStacks;
-  Options.EnableLibrcdStackSegmentation = LibrcdStackSegmentation;
+  Options.LibrcdStackSegmentationFD = LibrcdStackSegmentationFD;
   Options.UseInitArray = UseInitArray;
   Options.SSPBufferSize = SSPBufferSize;
 

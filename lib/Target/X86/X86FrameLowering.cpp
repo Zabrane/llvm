@@ -30,6 +30,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetOptions.h"
 
+#include <stdio.h>
+
 using namespace llvm;
 
 // FIXME: completely move here.
@@ -1437,6 +1439,22 @@ IsFxType(Type* t) {
 // limit.
 static const uint64_t kSplitStackAvailable = 256;
 
+static void librcdPrintFrameStackSize(unsigned LibrcdStyleFD, MachineFunction &MF, unsigned StackSize) {
+  dprintf(LibrcdStyleFD, "frame-size;%s;%d\n", MF.getName().data(), StackSize);
+}
+
+static void librcdPrintCalloutSymbol(unsigned LibrcdStyleFD, MachineFunction &MF, const char* DstSymbol) {
+  dprintf(LibrcdStyleFD, "callout;%s;%s\n",  MF.getName().data(), DstSymbol);
+}
+
+static void librcdPrintNDCalloutSymbol(unsigned LibrcdStyleFD, MachineFunction &MF) {
+  dprintf(LibrcdStyleFD, "ndrm-callout;%s\n",  MF.getName().data());
+}
+
+static void librcdPrintNoFrameReturn(unsigned LibrcdStyleFD, MachineFunction &MF) {
+  dprintf(LibrcdStyleFD, "no-frame-return;%s\n",  MF.getName().data());
+}
+
 void
 X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MachineBasicBlock &prologueMBB = MF.front();
@@ -1449,7 +1467,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   unsigned TlsReg, TlsOffset;
   DebugLoc DL;
 
-  unsigned LibrcdStyle = MF.getTarget().Options.EnableLibrcdStackSegmentation;
+  unsigned LibrcdStyleFD = MF.getTarget().Options.LibrcdStackSegmentationFD;
 
   unsigned ScratchReg = GetScratchRegister(Is64Bit, MF, true);
   assert(!MF.getRegInfo().isLiveIn(ScratchReg) &&
@@ -1458,15 +1476,78 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   if (!MF.getFunction()->getAttributes().hasAttribute(
                         AttributeSet::FunctionIndex,  Attribute::NoRedZone))
     report_fatal_error("Segmented stacks do not support red zone functions.");
-  if (!LibrcdStyle && MF.getFunction()->isVarArg())
+  if (!LibrcdStyleFD && MF.getFunction()->isVarArg())
     report_fatal_error("Segmented stacks do not support vararg functions.");
   if (!STI.isTargetLinux() && !STI.isTargetDarwin() &&
       !STI.isTargetWin32() && !STI.isTargetFreeBSD())
     report_fatal_error("Segmented stacks not supported on this platform.");
 
+  /// When the function has a call frame size it must be stack aligned as the
+  /// call lowering will pad it so the stack is aligned when the call is made.
+
+  unsigned MaxCallFrameSize = (MFI->getMaxCallFrameSize() + StackAlign - 1) / StackAlign * StackAlign;
+
+  // The stack size we need to allocate is the saved frame size plus the worst
+  // case frame alignment plus the normal stack allocation plus the max
+  // additional stack used for the argument area when calling other frames.
+
+  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
+  uint64_t SavedFrameSize = X86FI->getCalleeSavedFrameSize(); // size of regs pushed for save (not ret, bp)
+  uint64_t WorstCaseAlign = (MaxAlign > 1? MaxAlign: 0); // and etc. sp align
+  uint64_t AllocStackSize = MFI->getStackSize(); // sub sp (+ 0x18 if call out, TODO: research why)
+
+  uint64_t StackSize = SavedFrameSize + WorstCaseAlign + AllocStackSize + MaxCallFrameSize;
+
+  /*
+    fprintf(stderr, "SavedFrameSize: [%s] [%x]\n", MF.getName().data(), SavedFrameSize);
+    fprintf(stderr, "WorstCaseAlign: [%s] [%x]\n", MF.getName().data(), WorstCaseAlign);
+    fprintf(stderr, "AllocStackSize: [%s] [%x]\n", MF.getName().data(), AllocStackSize);
+    fprintf(stderr, "MaxCallFrameSize: [%s] [%x]\n", MF.getName().data(), MaxCallFrameSize);
+  */
+
+  if (LibrcdStyleFD) {
+    // Print stack limits and call out graph so we can make better guess on maximum stack usage of fibers.
+    librcdPrintFrameStackSize(LibrcdStyleFD, MF, StackSize);
+
+    for (MachineFunction::const_iterator I = MF.begin(), E = MF.end(); I != E; ++I) {
+      const MachineBasicBlock *MBB = I;
+      for (MachineBasicBlock::const_iterator II = MBB->begin(), IE = MBB->end();
+              II != IE; ++II) {
+        const MCInstrDesc &MCID = TM.getInstrInfo()->get(II->getOpcode());
+        // Scan all calls.
+        if (!MCID.isCall())
+          continue;
+        // Find symbol to call in operand list.
+        for (unsigned i = 0, e = II->getNumOperands();; ++i) {
+          if (i == e) {
+            // This is likely a function pointer call.
+            // Mark callout as non-deterministic. (Give up)
+            librcdPrintNDCalloutSymbol(LibrcdStyleFD, MF);
+            break;
+          }
+          const MachineOperand MO = II->getOperand(i);
+          /* fprintf(stderr, "lco-scan [%s]: mo[%d]: %d\n", MF.getName().data(), i, MO.getType()); */
+          if (MO.getType() == MachineOperand::MO_GlobalAddress) {
+            // Callout to global address that could be local in object file.
+            const GlobalValue *G = MO.getGlobal();
+            librcdPrintCalloutSymbol(LibrcdStyleFD, MF, G->getName().data());
+            /* fprintf(stderr, "lco-scan [%s]: calling global -> [%s]\n", MF.getName().data(), G->getName().data()); */
+            break;
+          } else if (MO.getType() == MachineOperand::MO_ExternalSymbol) {
+            // Callout to external symbol that will be resolved in link time.
+            const char* callout_symbol = MO.getSymbolName();
+            librcdPrintCalloutSymbol(LibrcdStyleFD, MF, callout_symbol);
+            /* fprintf(stderr, "lco-scan [%s]: calling external -> [%s]\n", MF.getName().data(), callout_symbol); */
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Start generating the prolouge.
   MachineBasicBlock *allocMBB = MF.CreateMachineBasicBlock();
   MachineBasicBlock *checkMBB = MF.CreateMachineBasicBlock();
-  X86MachineFunctionInfo *X86FI = MF.getInfo<X86MachineFunctionInfo>();
   bool IsNested = false;
 
   // We need to know if the function has a nest argument only in 64 bit mode.
@@ -1488,36 +1569,15 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
   MF.push_front(allocMBB);
   MF.push_front(checkMBB);
 
-  /// If the function has a call frame size it must be stack aligned as the
-  /// call lowering will pad it so the stack is aligned when the call is made.
-  unsigned MaxCallFrameSize = (MFI->getMaxCallFrameSize() + StackAlign - 1) / StackAlign * StackAlign;
-
-  // The stack size we need to allocate is the saved frame size plus the worst
-  // case frame alignment plus the normal stack allocation plus the max
-  // additional stack used for the argument area when calling other frames.
-
-  uint64_t SavedFrameSize = X86FI->getCalleeSavedFrameSize(); // size of regs pushed for save (not ret, bp)
-  uint64_t WorstCaseAlign = (MaxAlign > 1? MaxAlign: 0); // and etc. sp align
-  uint64_t AllocStackSize = MFI->getStackSize(); // sub sp (+ 0x18 if call out, TODO: research why)
-
-  uint64_t StackSize = SavedFrameSize + WorstCaseAlign + AllocStackSize + MaxCallFrameSize;
-
-  /*
-    fprintf(stderr, "SavedFrameSize: [%s] [%x]\n", MF.getName().data(), SavedFrameSize);
-    fprintf(stderr, "WorstCaseAlign: [%s] [%x]\n", MF.getName().data(), WorstCaseAlign);
-    fprintf(stderr, "AllocStackSize: [%s] [%x]\n", MF.getName().data(), AllocStackSize);
-    fprintf(stderr, "MaxCallFrameSize: [%s] [%x]\n", MF.getName().data(), MaxCallFrameSize);
-  */
-
   // When the frame size is less than 256 we just compare the stack
   // boundary directly to the value of the stack pointer, per gcc.
-  bool CompareStackPointer = StackSize < (LibrcdStyle? 0: kSplitStackAvailable);
+  bool CompareStackPointer = StackSize < (LibrcdStyleFD? 0: kSplitStackAvailable);
 
   // Read the limit off the current stacklet off the stack_guard location.
   if (Is64Bit) {
     if (STI.isTargetLinux()) {
       TlsReg = X86::FS;
-      TlsOffset = LibrcdStyle? 0x8: 0x70;
+      TlsOffset = LibrcdStyleFD? 0x8: 0x70;
     } else if (STI.isTargetDarwin()) {
       TlsReg = X86::GS;
       TlsOffset = 0x60 + 90*8; // See pthread_machdep.h. Steal TLS slot 90.
@@ -1605,7 +1665,7 @@ X86FrameLowering::adjustForSegmentedStacks(MachineFunction &MF) const {
 
   uint64_t RequestStackSize = StackSize;
   bool HasFxPassing = false;
-  if (LibrcdStyle) {
+  if (LibrcdStyleFD) {
     // In librcd have a more expensive type of __morestack that
     // saves the floating point and vector state with FXRSTOR / FXSAVE
     // which we should use if the function either takes any arguments

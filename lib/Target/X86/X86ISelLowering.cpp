@@ -14255,10 +14255,10 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
 
   assert(getTargetMachine().Options.EnableSegmentedStacks);
 
-  unsigned LibrcdStyle = getTargetMachine().Options.EnableLibrcdStackSegmentation;
+  unsigned LibrcdStyleFD = getTargetMachine().Options.LibrcdStackSegmentationFD;
 
   unsigned TlsReg = Is64Bit ? X86::FS : X86::GS;
-  unsigned TlsOffset = Is64Bit ? (LibrcdStyle ? 0x8 : 0x70) : 0x30;
+  unsigned TlsOffset = Is64Bit ? (LibrcdStyleFD ? 0x8 : 0x70) : 0x30;
 
   // BB:
   //  ... [Till the alloca]
@@ -14309,7 +14309,7 @@ X86TargetLowering::EmitLoweredSegAlloca(MachineInstr *MI, MachineBasicBlock *BB,
   BuildMI(BB, DL, TII->get(Is64Bit ? X86::SUB64rr:X86::SUB32rr), SPLimitVReg)
     .addReg(tmpSPVReg).addReg(sizeVReg);
 
-  if (LibrcdStyle) {
+  if (LibrcdStyleFD) {
     // FIXME: Bumping stack pointer is disabled if we're not in a system ctx
     // where the stack limit is zero.
     // It would be unsafe since comparing with the TLS offset (stack limit) also need

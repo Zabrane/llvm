@@ -145,11 +145,6 @@ SegmentedStacks("segmented-stacks",
   cl::desc("Use segmented stacks if possible."),
   cl::init(false));
 
-cl::opt<bool>
-LibrcdStackSegmentation("librcd-stack-segmentation",
-  cl::desc("Use librcd stack segmentation when using segmented stacks."),
-  cl::init(false));
-
 static cl::opt<bool>
 UseInitArray("use-init-array",
   cl::desc("Use .init_array instead of .ctors."),
@@ -261,7 +256,6 @@ void LTOModule::getTargetOptions(TargetOptions &Options) {
   Options.TrapFuncName = TrapFuncName;
   Options.PositionIndependentExecutable = EnablePIE;
   Options.EnableSegmentedStacks = SegmentedStacks;
-  Options.EnableLibrcdStackSegmentation = LibrcdStackSegmentation;
   Options.UseInitArray = UseInitArray;
   Options.SSPBufferSize = SSPBufferSize;
 }

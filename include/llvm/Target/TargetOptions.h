@@ -50,7 +50,7 @@ namespace llvm {
           GuaranteedTailCallOpt(false), DisableTailCalls(false),
           StackAlignmentOverride(0), RealignStack(true), SSPBufferSize(0),
           EnableFastISel(false), PositionIndependentExecutable(false),
-          EnableSegmentedStacks(false), EnableLibrcdStackSegmentation(false),
+          EnableSegmentedStacks(false), LibrcdStackSegmentationFD(0),
           UseInitArray(false), TrapFuncName(""),
           FloatABIType(FloatABI::Default), AllowFPOpFusion(FPOpFusion::Standard)
     {}
@@ -173,7 +173,7 @@ namespace llvm {
 
     unsigned EnableSegmentedStacks : 1;
 
-    unsigned EnableLibrcdStackSegmentation : 1;
+    unsigned LibrcdStackSegmentationFD;
 
     /// UseInitArray - Use .init_array instead of .ctors for static
     /// constructors.

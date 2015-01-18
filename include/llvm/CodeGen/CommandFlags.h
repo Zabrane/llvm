@@ -206,10 +206,10 @@ SegmentedStacks("segmented-stacks",
                 cl::desc("Use segmented stacks if possible."),
                 cl::init(false));
 
-cl::opt<bool>
-LibrcdStackSegmentation("librcd-stack-segmentation",
-                cl::desc("Use librcd stack segmentation when using segmented stacks."),
-                cl::init(false));
+cl::opt<unsigned>
+LibrcdStackSegmentationFD("librcd-stack-segmentation-fd",
+                cl::desc("Use librcd stack segmentation and write info to this file descriptor number."),
+                cl::init(0));
 
 cl::opt<bool>
 UseInitArray("use-init-array",

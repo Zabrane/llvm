@@ -507,7 +507,7 @@ static TargetOptions GetTargetOptions() {
   Options.TrapFuncName = TrapFuncName;
   Options.PositionIndependentExecutable = EnablePIE;
   Options.EnableSegmentedStacks = SegmentedStacks;
-  Options.EnableLibrcdStackSegmentation = LibrcdStackSegmentation;
+  Options.LibrcdStackSegmentationFD = LibrcdStackSegmentationFD;
   Options.UseInitArray = UseInitArray;
   Options.SSPBufferSize = SSPBufferSize;
   return Options;
